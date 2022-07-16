@@ -11,7 +11,7 @@ import json
 import yaml
 from myUtils import *
 
-class CRecognizer:
+class CClockRecognizer:
     def __init__(self, config):
         self.m_config = config
         self.m_model = init_detector(
@@ -72,7 +72,10 @@ class CRecognizer:
         South = [MidW, East[1]+West[1]-North[1]]
         Points1 = np.float32([East, South, West, North])
         Points2 = np.float32([
-            [800, 500], [500, 800], [200, 500], [500, 200]
+            self.m_config['REC']['EAST'],
+            self.m_config['REC']['SOUTH'], 
+            self.m_config['REC']['WEST'],
+            self.m_config['REC']['NORTH']
             ])
         PerMatrix = cv2.getPerspectiveTransform(Points1, Points2)
         return PerMatrix
@@ -95,17 +98,17 @@ class CRecognizer:
 
     def _perspective(self, vImg, vMask):
         PerMatrix = self._getPerspectiveMatrix(vImg, vMask)
-        PerImg = cv2.warpPerspective(vImg, PerMatrix, (1500, 1500))
+        PerImg = cv2.warpPerspective(vImg, PerMatrix, tuple(self.m_config['REC']['SIZE']))
         voPerImg = PerImg
         return voPerImg
 
-    def _adjust(self, vImgPath): # vImgPath 有待商榷
+    def _adjust(self, vImgPath): # vImgPath 是路径而不是单纯文件名
         InferenceResult = inference_detector(
             self.m_model, vImgPath)
         self.m_model.show_result(
             vImgPath,
             InferenceResult,
-            out_file=config['INFERENCE_SAVE_PATH']+'/'+vImgPath
+            out_file=config['INFERENCE_SAVE_PATH']+'/'+ getNameFromPath(vImgPath)
             )
         
         BboxResult, SegmResult = InferenceResult
@@ -137,18 +140,28 @@ class CRecognizer:
             [(ScaleCorner[0][0]+ScaleCorner[1][0])/2, (ScaleCorner[0][1]+ScaleCorner[1][1])/2]
             ]
         PerImg = self._perspective(RotateImg, RotateMask)
-        cv2.imwrite(self.m_config['ADJUST_PATH']+'/'+vImgPath, PerImg) 
+        cv2.imwrite(self.m_config['ADJUST_PATH']+'/'+getNameFromPath(vImgPath), PerImg) 
 
     def _fitCircle(self):
         pass
 
     def process(self, vDataPath):
-        self._adjust(vDataPath)
+        if os.path.isdir(vDataPath):
+            NameLis = os.listdir(vDataPath)
+            for i in NameLis:
+                print(i)
+                self._adjust(vDataPath+'/'+i)
+                
+        elif os.path.isfile(vDataPath):
+            self._adjust(vDataPath)
+        
+        else:
+            print("[ERROR] Check your vDataPath!")
 
         
 if __name__ == '__main__':
     with open('config.yaml', 'r') as f:
         config = yaml.load(f.read(), Loader=yaml.FullLoader)
     initDir(config)
-    cr = CRecognizer(config)
-    cr.process('HD213.jpg')
+    cr = CClockRecognizer(config)
+    cr.process(config['INPUT_IMG_PATH'])

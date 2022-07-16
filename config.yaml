@@ -1,18 +1,43 @@
 # paths
-
+INPUT_IMG_PATH: './cocome'
 IMG_SAVE_PATH: './img'
 INFERENCE_SAVE_PATH: './img/inference_result'
 ADJUST_PATH: './img/adjust_result'
-OCR_SAVE_PATH: 'ocr'
+OCR_SAVE_PATH: './ocr'
 MODEL_CONFIG_PATH: './configs/myConfigs/pointer_config.py'
 CHECKPOINT_PATH: './checkpoints/new.pth'
-
 
 # corner point
 QUALITY_LEVEL: 0.01
 BLOCK_SIZE: 80
 MAX_CORNERS: 2
 MIN_DISTANCE: 300
+
+# perspective rectangle w,h
+# o--------------> w
+# |
+# |
+# |
+# |
+# v
+# h
+
+REC:
+  EAST:
+    - 800
+    - 500
+  SOUTH:
+    - 500
+    - 800
+  WEST:
+    - 200
+    - 500
+  NORTH:
+    - 500
+    - 200
+  SIZE:
+    - 1000
+    - 1000
 
 # debug
 SHOW_IMG: false

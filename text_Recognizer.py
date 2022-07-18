@@ -11,7 +11,23 @@ class CTextRecognizer:
         self.m_config = config
     
     def _detect(self, vImgPath):
-        Result = self.m_model.ocr(vImgPath, cls = True)
+        Img = cv2.imread(vImgPath, cv2.IMREAD_GRAYSCALE)
+        # 形态学处理
+        _, ModifiedImg = cv2.threshold(Img, 90, 255, cv2.THRESH_BINARY)
+        
+        # --- 开闭运算比较影响图片质量，不使用
+        # Kernel = cv2.getStructuringElement(
+        #     cv2.MORPH_RECT, 
+        #     (self.m_config['MORPHOLOGY_KERNEL_SIZE'], self.m_config['MORPHOLOGY_KERNEL_SIZE'])
+        #     )
+        # ModifiedImg = cv2.morphologyEx(
+        #     ModifiedImg, cv2.MORPH_OPEN, Kernel, 
+        #     iterations=self.m_config['MORPHOLOGY_KERNEL_ITERATION']
+        #     )
+
+        showImg(ModifiedImg)
+        cv2.waitKey(0)
+        Result = self.m_model.ocr(ModifiedImg, cls = True)
         saveOcr(
             vImgPath, 
             Result, 

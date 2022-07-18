@@ -2,14 +2,16 @@
 INPUT_IMG_PATH: './cocome'
 IMG_SAVE_PATH: './img'
 INFERENCE_SAVE_PATH: './img/inference_result'
-ADJUST_PATH: './img/adjust_result'
+MASK_SAVE_PATH: './img/mask_result'
+ADJUST_SAVE_PATH: './img/adjust_result'
+FIT_SAVE_PATH: './img/fit_result'
 OCR_SAVE_PATH: './ocr'
 MODEL_CONFIG_PATH: './configs/myConfigs/pointer_config.py'
 CHECKPOINT_PATH: './checkpoints/new.pth'
 
 # corner point
 QUALITY_LEVEL: 0.01
-BLOCK_SIZE: 80
+BLOCK_SIZE: 100
 MAX_CORNERS: 2
 MIN_DISTANCE: 300
 
@@ -38,6 +40,26 @@ REC:
   SIZE:
     - 1000
     - 1000
+
+# fit circle
+SAMPLE_DISTANCE_TO_CORNER: 100
+
+
+# ocr preprocess
+MORPHOLOGY_KERNEL_SIZE: 2
+MORPHOLOGY_KERNEL_ITERATION: 3
+
+# color
+RGBCOLOR_YELLOW: 
+  - 255
+  - 255
+  - 0
+
+RGBCOLOR_BLUE:
+  - 255
+  - 0
+  - 0
+
 
 # debug
 SHOW_IMG: false

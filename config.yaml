@@ -42,15 +42,15 @@ REC:
     - 1000
 
 # fit circle
-SAMPLE_DISTANCE_TO_CORNER: 100
-
+SAMPLE_DIST_TO_CORNER: 100
+SAMPLE_INDEX: 47
 
 # ocr preprocess
 MORPHOLOGY_KERNEL_SIZE: 2
 MORPHOLOGY_KERNEL_ITERATION: 3
 
 # color
-RGBCOLOR_YELLOW: 
+RGBCOLOR_CYAN: 
   - 255
   - 255
   - 0
@@ -60,6 +60,14 @@ RGBCOLOR_BLUE:
   - 0
   - 0
 
+RGBCOLOR_YELLOW:
+  - 0
+  - 255
+  - 255
 
+RGBCOLOR_RED:
+  - 0
+  - 0
+  - 255
 # debug
 SHOW_IMG: false

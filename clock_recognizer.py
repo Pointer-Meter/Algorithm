@@ -34,10 +34,9 @@ class CClockRecognizer:
             self.m_Config['MIN_DISTANCE'], 
             blockSize = self.m_Config['BLOCK_SIZE'])
         for p in Corners:
-            CornerImg = cv2.circle(
-                CornerImg, 
+            CornerImg = cv2.circle(CornerImg, 
                 (np.int32(p[0][0]), np.int32(p[0][1])), 
-                10, (255, 255, 0), 2)
+                10, self.m_Config['RGBCOLOR_RED'], 5)
         return Corners, CornerImg
 
     def _getRotateMatrix(self, vShape, vP1, vP2, vPr):
@@ -87,46 +86,33 @@ class CClockRecognizer:
 
     def _rotate(self, vImg, vScaleCorner, vRefPoint):
         RotateMatrix, NewW, NewH = self._getRotateMatrix(
-            vImg.shape,
-            vScaleCorner[0],
-            vScaleCorner[1],
-            vRefPoint
-            )
-        RotateImg = cv2.warpAffine(
-            vImg, 
-            RotateMatrix,
-            (NewW, NewH),
-            )
+            vImg.shape, vScaleCorner[0], vScaleCorner[1], vRefPoint)
+        RotateImg = cv2.warpAffine(vImg, RotateMatrix, (NewW, NewH))
         return RotateImg, RotateMatrix, NewW, NewH
 
     def _perspective(self, vImg, vScaleMask, vPointerMask, vScaleCorner):
         PerMatrix = self._getPerspectiveMatrix(vScaleMask)
-        PerImg = cv2.warpPerspective(vImg, PerMatrix, tuple(self.m_Config['REC']['SIZE']))
-        ScaleMask = cv2.warpPerspective(
-            vScaleMask, PerMatrix,
-            tuple(self.m_Config['REC']['SIZE'])
-        )
-        PointerMask = cv2.warpPerspective(
-            vPointerMask, PerMatrix,
-            tuple(self.m_Config['REC']['SIZE'])
-        )
+        PerImg = cv2.warpPerspective(vImg, PerMatrix, 
+            tuple(self.m_Config['REC']['SIZE']))
+        ScaleMask = cv2.warpPerspective(vScaleMask, PerMatrix, 
+            tuple(self.m_Config['REC']['SIZE']))
+        PointerMask = cv2.warpPerspective(vPointerMask, PerMatrix, 
+            tuple(self.m_Config['REC']['SIZE']))
         ConcatMask = ScaleMask + PointerMask
         ConcatMask[ConcatMask>0] = 255
-        cv2.imwrite(self.m_Config['MASK_SAVE_PATH']+'/'+ 'Per_' + "jj.jpg", ConcatMask)
 
-        ScaleCorner = vScaleCorner
-        ScaleCorner = np.dot(PerMatrix, ScaleCorner)
+        # 透视变换
+        t = np.dot(PerMatrix, vScaleCorner.T).T
+        ScaleCorner = np.array(
+            [[t[0][0]/t[0][2], t[0][1]/t[0][2]],
+             [t[1][0]/t[1][2], t[1][1]/t[1][2]]])
         return PerImg, ScaleMask, PointerMask, ScaleCorner
 
     def _adjust(self, vImgPath): # vImgPath 是路径而不是单纯文件名
-        print(">> adjusting " + vImgPath + ' ...')
-        InferenceResult = inference_detector(
-            self.m_model, vImgPath)
-        self.m_model.show_result(
-            vImgPath,
-            InferenceResult,
-            out_file=config['INFERENCE_SAVE_PATH']+'/'+ getNameFromPath(vImgPath)
-            )
+        # 推理mask
+        InferenceResult = inference_detector(self.m_model, vImgPath)
+        self.m_model.show_result(vImgPath, InferenceResult,
+            out_file=config['INFERENCE_SAVE_PATH']+'/'+ getNameFromPath(vImgPath))
         
         BboxResult, SegmResult = InferenceResult
         Segm = mmcv.concat_list(SegmResult)
@@ -136,11 +122,11 @@ class CClockRecognizer:
         PointerMask = PointerMask.astype(np.uint8)
         ScaleMask = ScaleMask.astype(np.uint8)
 
-        ReferencePoint = [
-            (BboxResult[0][0][0]+BboxResult[0][0][2])/2, 
-            (BboxResult[0][0][1]+BboxResult[0][0][3])/2
-            ]
+        ReferencePoint = [(BboxResult[0][0][0]+BboxResult[0][0][2])/2, 
+            (BboxResult[0][0][1]+BboxResult[0][0][3])/2]
         
+        # 获取未旋转图片的mask，并在角点检测后进行摆正
+        # 摆正原图、刻度mask、指针mask
         RawImg = cv2.imread(vImgPath)
         CornerLis, CornerImg = self._detectCorner(ScaleMask, RawImg) 
         ScaleCorner = [[CornerLis[0][0][0], CornerLis[0][0][1]],
@@ -149,108 +135,88 @@ class CClockRecognizer:
         RotateScaleMask = cv2.warpAffine(ScaleMask, RotateMatrix, (NewW, NewH))
         RotatePointerMask = cv2.warpAffine(PointerMask, RotateMatrix, (NewW, NewH))
         
+        # 保存下摆正后的mask图片
         ConcatMask = RotateScaleMask + RotatePointerMask
         ConcatMask[ConcatMask>0] = 255
         cv2.imwrite(self.m_Config['MASK_SAVE_PATH']+'/'+ 'Rotate_' + getNameFromPath(vImgPath), ConcatMask)
 
         self.m_RotateImg = RotateImg
-
-        print("ScaleCorner: ", ScaleCorner)
-        print("RotateMatrix: ", RotateMatrix)
+        
+        # 将角点也摆正一下
         onev, oneh = np.array([[0, 0, 1]]), np.array([[1], [1]])
         RotateMatrix = np.vstack((RotateMatrix, onev))
-        ScaleCorner = np.hstack((ScaleCorner, oneh)).T
-        ScaleCorner = np.dot(RotateMatrix, ScaleCorner)
-        print("RotateMatrix: ", RotateMatrix)
-        print("ScaleCorner: ", ScaleCorner)
+        RotateScaleCorner = np.hstack((ScaleCorner, oneh)).T
+        RotateScaleCorner = np.dot(RotateMatrix, RotateScaleCorner).T
 
+        # 将摆正好的指针mask，刻度mask，刻度角点存入类属性
+        PerImg, self.m_AdjustScaleMask, self.m_AdjustPointerMask, self.m_ScaleCorner = self._perspective(
+            RotateImg, RotateScaleMask, RotatePointerMask, RotateScaleCorner)
 
-        self.m_ScaleCorner = [
-            (int(ScaleCorner[0][0]), int(ScaleCorner[1][0])), 
-            (int(ScaleCorner[1][0]), int(ScaleCorner[1][1])), 
-            [(ScaleCorner[0][0]+ScaleCorner[1][0])/2, (ScaleCorner[0][1]+ScaleCorner[1][1])/2]
-            ]
-        RotateImg = cv2.circle(
-            RotateImg,
-            self.m_ScaleCorner[0],
-            10,
-            self.m_Config['RGBCOLOR_BLUE'],
-            5
-        )
-        RotateImg = cv2.circle(
-            RotateImg,
-            self.m_ScaleCorner[1],
-            10,
-            self.m_Config['RGBCOLOR_BLUE'],
-            5
-        )
-        PerImg, self.m_AdjustScaleMask, self.m_AdjustPointerMask, ScaleCorner = self._perspective(
-            RotateImg, RotateScaleMask, RotatePointerMask, ScaleCorner)
-        self.m_ScaleCorner = [
-            ScaleCorner[0], 
-            ScaleCorner[1], 
-            [(ScaleCorner[0][0]+ScaleCorner[1][0])/2, (ScaleCorner[0][1]+ScaleCorner[1][1])/2]
-            ]
-        print("self.Corner: ", self.m_ScaleCorner)
         cv2.imwrite(self.m_Config['ADJUST_SAVE_PATH']+'/'+getNameFromPath(vImgPath), PerImg) 
 
     def _fitCircle(self, vImgPath):
-        print(">> fitting " + vImgPath + ' ...')
-        Contours = bitmap_to_polygon(self.m_AdjustScaleMask)
-        Contour = Contours[0]
-        # showImg(self.m_AdjustScaleMask, vIfMask=True)
+        Contour, _ = bitmap_to_polygon(self.m_AdjustScaleMask)
         ImgPath = self.m_Config['ADJUST_SAVE_PATH']+'/'+getNameFromPath(vImgPath)
         Img = cv2.imread(ImgPath)
         ColoredImg = Img.copy()
         # 轮廓分段法取点采样---有待改进
-        CircleLis1 = []
-        CircleLis2 = []
-        i = 0
-        cnt = 0
+        CircleLis1, CircleLis2 = [], []
+        i, cnt = 0, 0
         Lock = False
         while True:
             # Contour: [array[[x,y],[x,y],[x,y]...]]
             [x, y] = Contour[0][i]
-            i = (i + 19) % len(Contour[0]) # 轮廓点太多，19个点取1个
+            i = (i + self.m_Config['SAMPLE_INDEX']) % len(Contour[0]) # 轮廓点太多，隔n个点取1个
             add = False
-            d1 = calPointDistance(
-                x, y,
-                self.m_ScaleCorner[0][0], self.m_ScaleCorner[0][1]
-                )
-            d2 = calPointDistance(
-                x, y,
-                self.m_ScaleCorner[1][0], self.m_ScaleCorner[1][1]
-                )
-            # print(i, " d1=", d1, " d2=", d2, " len1=", len(CircleLis1), " len2=", len(CircleLis2), " cnt=", cnt)
-            if d1 <= self.m_Config['SAMPLE_DISTANCE_TO_CORNER'] \
-                or d2 <= self.m_Config['SAMPLE_DISTANCE_TO_CORNER']:
+            d1 = calPointDistance(x, y, self.m_ScaleCorner[0][0], self.m_ScaleCorner[0][1])
+            d2 = calPointDistance(x, y, self.m_ScaleCorner[1][0], self.m_ScaleCorner[1][1])
+
+            if d1 <= self.m_Config['SAMPLE_DIST_TO_CORNER'] or d2 <= self.m_Config['SAMPLE_DIST_TO_CORNER']:
                 if not Lock:
                     Lock = True
                     cnt += 1
-                else:
-                    print("skip lock")
-                    continue
+                continue
             
             Lock = False
             if cnt % 2 == 0:
                 CircleLis1.append([x, y])
             else:
                 CircleLis2.append([x, y])
+            # 标一下采样点
             ColoredImg = cv2.circle(
-                ColoredImg, (np.int32(x), np.int32(y)), 10, 
-                tuple(self.m_Config['RGBCOLOR_YELLOW']), 5)
+                ColoredImg, (np.int32(x), np.int32(y)), 4, 
+                tuple(self.m_Config['RGBCOLOR_CYAN']), 2)
             
+            ColoredImg = cv2.putText(ColoredImg, "("+str(x)+","+str(y)+")", 
+                (x, y), cv2.FONT_HERSHEY_COMPLEX, 0.4, 
+                self.m_Config['RGBCOLOR_BLUE'], 1)
+
             if len(CircleLis1) > 19 and len(CircleLis2) > 19:
                 break
         A1, B1, R1 = calCircleCenter(CircleLis1)
         A2, B2, R2 = calCircleCenter(CircleLis2)
         self.m_ScaleCircle = [(A1+A2)/2,(B1+B2)/2,(0.8*R1+0.2*R2)]
-        ColoredImg = cv2.circle(
-            ColoredImg, 
+        # 标一下拟合好的圆
+        ColoredImg = cv2.circle(ColoredImg, 
             (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
-            np.int32(self.m_ScaleCircle[2]),
-            self.m_Config['RGBCOLOR_BLUE'], 5
-            )
+            np.int32(self.m_ScaleCircle[2]), self.m_Config['RGBCOLOR_BLUE'], 2)
+        # 标一下拟合好的圆心
+        ColoredImg = cv2.circle(ColoredImg, 
+            (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
+            5, self.m_Config['RGBCOLOR_BLUE'], 2)
+        # 标一下角点
+        ColoredImg = cv2.circle(ColoredImg, (int(self.m_ScaleCorner[0][0]), int(self.m_ScaleCorner[0][1])),
+            3, self.m_Config['RGBCOLOR_YELLOW'], 2)
+        ColoredImg = cv2.circle(ColoredImg, (int(self.m_ScaleCorner[1][0]), int(self.m_ScaleCorner[1][1])),
+            3, self.m_Config['RGBCOLOR_YELLOW'], 2)
+        ColoredImg = cv2.putText(ColoredImg, 
+            "("+str(int(self.m_ScaleCorner[0][0]))+","+str(int(self.m_ScaleCorner[0][1]))+")", 
+            (int(self.m_ScaleCorner[0][0]), int(self.m_ScaleCorner[0][1])), cv2.FONT_HERSHEY_COMPLEX, 0.4, 
+            self.m_Config['RGBCOLOR_RED'], 1)
+        ColoredImg = cv2.putText(ColoredImg, 
+            "("+str(int(self.m_ScaleCorner[1][0]))+","+str(int(self.m_ScaleCorner[1][1]))+")", 
+            (int(self.m_ScaleCorner[1][0]), int(self.m_ScaleCorner[1][1])), cv2.FONT_HERSHEY_COMPLEX, 0.4, 
+            self.m_Config['RGBCOLOR_RED'], 1)
         cv2.imwrite(self.m_Config['FIT_SAVE_PATH']+'/'+getNameFromPath(ImgPath), ColoredImg)
             
 
@@ -259,11 +225,15 @@ class CClockRecognizer:
         if os.path.isdir(vDataPath):
             NameLis = os.listdir(vDataPath)
             for i in NameLis:
+                print(">> adjusting " + vDataPath+'/'+i + ' ...')
                 self._adjust(vDataPath+'/'+i)
+                print(">> fitting " + vDataPath+'/'+i + ' ...')
                 self._fitCircle(vDataPath+'/'+i)
                 
         elif os.path.isfile(vDataPath):
+            print(">> adjusting " + vDataPath + ' ...')
             self._adjust(vDataPath)
+            print(">> fitting " + vDataPath + ' ...')
             self._fitCircle(vDataPath)
         else:
             print("[ERROR] Check your vDataPath!")

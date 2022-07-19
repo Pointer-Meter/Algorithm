@@ -53,7 +53,10 @@ ocr的检测，识别，方向分类模型的下载链接都在本地目录 `/yo
 
 
 # log
-+ [ ] 7.18 角点旋转出错
++ 7.18 
+    - [x] 角点旋转出错
++ 7.19
+    - [x] 透视变换的公式写错
 
 <!-- 
 + 如果matplotlib冲突，降级labelme `python3 -m pip install labelme==4.2.0`

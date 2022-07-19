@@ -19,11 +19,13 @@ class CClockRecognizer:
             vConfig['CHECKPOINT_PATH'], 
             device='cuda:0'
             )
-        self.m_ScaleCorner = None
+        self.m_AdjustScaleCorner = None
         self.m_ScaleCircle = None
         self.m_RotateImg = None
         self.m_AdjustScaleMask = None
         self.m_AdjustPointerMask = None
+        self.m_AdjustPointerBbox = None
+        self.m_PointerPoint = None
 
     def _detectCorner(self, vMask, vRawImg):
         CornerImg = vRawImg.copy()
@@ -115,6 +117,13 @@ class CClockRecognizer:
             out_file=config['INFERENCE_SAVE_PATH']+'/'+ getNameFromPath(vImgPath))
         
         BboxResult, SegmResult = InferenceResult
+        Bbox = mmcv.concat_list(BboxResult)
+        Bbox = np.stack(Bbox, axis=0)
+        PointerBbox, ScaleBbox = Bbox
+        # PointerBbox = np.array(
+        #     [[PointerBbox[0], PointerBbox[1]],
+        #      [PointerBbox[2], PointerBbox[3]]])
+
         Segm = mmcv.concat_list(SegmResult)
         Segm = np.stack(Segm, axis=0)
 
@@ -136,9 +145,9 @@ class CClockRecognizer:
         RotatePointerMask = cv2.warpAffine(PointerMask, RotateMatrix, (NewW, NewH))
         
         # 保存下摆正后的mask图片
-        ConcatMask = RotateScaleMask + RotatePointerMask
-        ConcatMask[ConcatMask>0] = 255
-        cv2.imwrite(self.m_Config['MASK_SAVE_PATH']+'/'+ 'Rotate_' + getNameFromPath(vImgPath), ConcatMask)
+        # ConcatMask = RotateScaleMask + RotatePointerMask
+        # ConcatMask[ConcatMask>0] = 255
+        # cv2.imwrite(self.m_Config['MASK_SAVE_PATH']+'/'+ 'Rotate_' + getNameFromPath(vImgPath), ConcatMask)
 
         self.m_RotateImg = RotateImg
         
@@ -149,8 +158,12 @@ class CClockRecognizer:
         RotateScaleCorner = np.dot(RotateMatrix, RotateScaleCorner).T
 
         # 将摆正好的指针mask，刻度mask，刻度角点存入类属性
-        PerImg, self.m_AdjustScaleMask, self.m_AdjustPointerMask, self.m_ScaleCorner = self._perspective(
+        PerImg, self.m_AdjustScaleMask, self.m_AdjustPointerMask, self.m_AdjustScaleCorner = self._perspective(
             RotateImg, RotateScaleMask, RotatePointerMask, RotateScaleCorner)
+
+        ConcatMask = self.m_AdjustScaleMask + self.m_AdjustPointerMask
+        ConcatMask[ConcatMask>0] = 255
+        cv2.imwrite(self.m_Config['MASK_SAVE_PATH']+'/'+ 'Adjust_' + getNameFromPath(vImgPath), ConcatMask)
 
         cv2.imwrite(self.m_Config['ADJUST_SAVE_PATH']+'/'+getNameFromPath(vImgPath), PerImg) 
 
@@ -159,6 +172,7 @@ class CClockRecognizer:
         ImgPath = self.m_Config['ADJUST_SAVE_PATH']+'/'+getNameFromPath(vImgPath)
         Img = cv2.imread(ImgPath)
         ColoredImg = Img.copy()
+        # 拟合圆
         # 轮廓分段法取点采样---有待改进
         CircleLis1, CircleLis2 = [], []
         i, cnt = 0, 0
@@ -168,8 +182,8 @@ class CClockRecognizer:
             [x, y] = Contour[0][i]
             i = (i + self.m_Config['SAMPLE_INDEX']) % len(Contour[0]) # 轮廓点太多，隔n个点取1个
             add = False
-            d1 = calPointDistance(x, y, self.m_ScaleCorner[0][0], self.m_ScaleCorner[0][1])
-            d2 = calPointDistance(x, y, self.m_ScaleCorner[1][0], self.m_ScaleCorner[1][1])
+            d1 = calPointDistance(x, y, self.m_AdjustScaleCorner[0][0], self.m_AdjustScaleCorner[0][1])
+            d2 = calPointDistance(x, y, self.m_AdjustScaleCorner[1][0], self.m_AdjustScaleCorner[1][1])
 
             if d1 <= self.m_Config['SAMPLE_DIST_TO_CORNER'] or d2 <= self.m_Config['SAMPLE_DIST_TO_CORNER']:
                 if not Lock:
@@ -196,30 +210,119 @@ class CClockRecognizer:
         A1, B1, R1 = calCircleCenter(CircleLis1)
         A2, B2, R2 = calCircleCenter(CircleLis2)
         self.m_ScaleCircle = [(A1+A2)/2,(B1+B2)/2,(0.8*R1+0.2*R2)]
-        # 标一下拟合好的圆
+
+        # --- 拟合指针
+        # 为减少搜索指针区域的计算量，只搜索bbox
+        # -- 对指针BBOX旋转是错误的，所以只能重新推理
+        InferenceResult = inference_detector(self.m_model, ImgPath)
+        
+        BboxResult, _ = InferenceResult
+        Bbox = mmcv.concat_list(BboxResult)
+        Bbox = np.stack(Bbox, axis=0)
+        PointerBbox, ScaleBbox = Bbox
+        # BBOX: [[w, h], [w, h]]
+        self.m_AdjustPointerBbox = np.array(
+            [[PointerBbox[0], PointerBbox[1]],
+             [PointerBbox[2], PointerBbox[3]]])
+        # -- 最小二乘法拟合
+        PointerXLis, PointerYLis = [], []
+        for h in range(int(PointerBbox[1]), int(PointerBbox[3])):
+            for w in range(int(PointerBbox[0]), int(PointerBbox[2])):
+                if self.m_AdjustPointerMask[h][w] > 0:
+                    PointerXLis.append(w)
+                    PointerYLis.append(h)
+                    ColoredImg[h][w] = 255
+
+        ones = np.ones(len(PointerXLis)).reshape(-1, 1)
+        PointerX = np.array(PointerXLis).reshape(-1, 1)
+        PointerX = np.concatenate((PointerX, ones), axis=1)
+        PointerY = np.array(PointerYLis)
+        # X^T * X * B = X^T * Y
+        # B = (X^T * X)^-1 * (X^T * Y)
+        PointerFitParam = np.dot(
+            np.dot(np.linalg.inv(np.dot(PointerX.T, PointerX)), PointerX.T), PointerY)
+        PointerMaskIndexMat = np.vstack((np.array([PointerXLis]), np.array([PointerYLis]))).T
+        print("pointer line: ", PointerFitParam)
+        # -- 计算指针的方向
+        NormalK = -1 / PointerFitParam[0]
+        NormalB = self.m_ScaleCircle[1] - NormalK * self.m_ScaleCircle[0]
+        AvgSum = [0, 0]
+        cnt = 1
+        for pt in PointerMaskIndexMat:
+            w, h = pt
+            DistToCenter = calPointDistance(x, y, 
+                self.m_ScaleCircle[0], self.m_ScaleCircle[1])
+            if NormalK*w+NormalB-h>0:
+                AvgSum[0] = AvgSum[0] / cnt * (cnt-1) + DistToCenter / cnt
+            elif NormalK*w+NormalB-h<0:
+                AvgSum[1] = AvgSum[1] / cnt * (cnt-1) + DistToCenter / cnt
+            else:
+                continue
+            cnt += 1
+        # -- 求指针与圆的焦点
+        # ax^2 + bx + c = 0
+        a = PointerFitParam[0]*PointerFitParam[0]+1
+        b = 2*(PointerFitParam[0]*PointerFitParam[1]-
+            self.m_ScaleCircle[0]-
+            PointerFitParam[0]*self.m_ScaleCircle[1])
+        c = (self.m_ScaleCircle[0]*self.m_ScaleCircle[0]+
+            PointerFitParam[1]*PointerFitParam[1]+
+            self.m_ScaleCircle[1]*self.m_ScaleCircle[1]-
+            self.m_ScaleCircle[2]*self.m_ScaleCircle[2]-
+            2*self.m_ScaleCircle[1]*PointerFitParam[1])
+        
+        w1 = (-b-sqrt(b*b-4*a*c))/(2*a)
+        h1 = PointerFitParam[0]*w1+PointerFitParam[1]
+        w2 = (-b+sqrt(b*b-4*a*c))/(2*a)
+        h2 = PointerFitParam[0]*w2+PointerFitParam[1]
+
+        print((w1-self.m_ScaleCircle[0])*(w1-self.m_ScaleCircle[0])+(h1-self.m_ScaleCircle[1])*(h1-self.m_ScaleCircle[1])-self.m_ScaleCircle[2]*self.m_ScaleCircle[2])
+        if (NormalK*w1+NormalB-h1)*(AvgSum[0]-AvgSum[1])>0 and (NormalK*w2+NormalB-h2)*(AvgSum[0]-AvgSum[1])<0:
+            self.m_PointerPoint = [w1, h1]
+        elif (NormalK*w1+NormalB-h1)*(AvgSum[0]-AvgSum[1])<0 and (NormalK*w2+NormalB-h2)*(AvgSum[0]-AvgSum[1])>0:
+            self.m_PointerPoint = [w2, h2]
+        else:
+            print(">> ERROR! Please Check Your Cal.")
+
+        # --- 结果可视化
+        # -- 标一下拟合好的圆
         ColoredImg = cv2.circle(ColoredImg, 
             (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
             np.int32(self.m_ScaleCircle[2]), self.m_Config['RGBCOLOR_BLUE'], 2)
-        # 标一下拟合好的圆心
+        # -- 标一下拟合好的圆心
         ColoredImg = cv2.circle(ColoredImg, 
             (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
             5, self.m_Config['RGBCOLOR_BLUE'], 2)
-        # 标一下角点
-        ColoredImg = cv2.circle(ColoredImg, (int(self.m_ScaleCorner[0][0]), int(self.m_ScaleCorner[0][1])),
+        # -- 标一下拟合好的直线
+        ColoredImg = cv2.line(ColoredImg, 
+            (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
+            (int(self.m_PointerPoint[0]), int(self.m_PointerPoint[1])),
+            self.m_Config['RGBCOLOR_BLUE'], 2)  
+
+        # -- 标一下角点
+        ColoredImg = cv2.circle(ColoredImg, (int(self.m_AdjustScaleCorner[0][0]), int(self.m_AdjustScaleCorner[0][1])),
             3, self.m_Config['RGBCOLOR_YELLOW'], 2)
-        ColoredImg = cv2.circle(ColoredImg, (int(self.m_ScaleCorner[1][0]), int(self.m_ScaleCorner[1][1])),
+        ColoredImg = cv2.circle(ColoredImg, (int(self.m_AdjustScaleCorner[1][0]), int(self.m_AdjustScaleCorner[1][1])),
             3, self.m_Config['RGBCOLOR_YELLOW'], 2)
         ColoredImg = cv2.putText(ColoredImg, 
-            "("+str(int(self.m_ScaleCorner[0][0]))+","+str(int(self.m_ScaleCorner[0][1]))+")", 
-            (int(self.m_ScaleCorner[0][0]), int(self.m_ScaleCorner[0][1])), cv2.FONT_HERSHEY_COMPLEX, 0.4, 
+            "("+str(int(self.m_AdjustScaleCorner[0][0]))+","+str(int(self.m_AdjustScaleCorner[0][1]))+")", 
+            (int(self.m_AdjustScaleCorner[0][0]), int(self.m_AdjustScaleCorner[0][1])), cv2.FONT_HERSHEY_COMPLEX, 0.4, 
             self.m_Config['RGBCOLOR_RED'], 1)
         ColoredImg = cv2.putText(ColoredImg, 
-            "("+str(int(self.m_ScaleCorner[1][0]))+","+str(int(self.m_ScaleCorner[1][1]))+")", 
-            (int(self.m_ScaleCorner[1][0]), int(self.m_ScaleCorner[1][1])), cv2.FONT_HERSHEY_COMPLEX, 0.4, 
+            "("+str(int(self.m_AdjustScaleCorner[1][0]))+","+str(int(self.m_AdjustScaleCorner[1][1]))+")", 
+            (int(self.m_AdjustScaleCorner[1][0]), int(self.m_AdjustScaleCorner[1][1])), cv2.FONT_HERSHEY_COMPLEX, 0.4, 
             self.m_Config['RGBCOLOR_RED'], 1)
+        # -- 标一下指针BBOX
+        ColoredImg = cv2.rectangle(ColoredImg, 
+            (int(self.m_AdjustPointerBbox[0][0]), int(self.m_AdjustPointerBbox[0][1])), 
+            (int(self.m_AdjustPointerBbox[1][0]), int(self.m_AdjustPointerBbox[1][1])),
+            self.m_Config['RGBCOLOR_BLUE'], 5)
+        ColoredImg = cv2.line(ColoredImg, 
+            (500, 100),
+            (600, 100),
+            self.m_Config['RGBCOLOR_YELLOW'], 2) 
         cv2.imwrite(self.m_Config['FIT_SAVE_PATH']+'/'+getNameFromPath(ImgPath), ColoredImg)
             
-
 
     def process(self, vDataPath):
         if os.path.isdir(vDataPath):

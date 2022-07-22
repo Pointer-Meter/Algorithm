@@ -1,5 +1,4 @@
 import os
-import yaml
 import cv2
 from PIL import Image
 from paddleocr import PaddleOCR, draw_ocr
@@ -7,17 +6,9 @@ from math import sqrt
 import numpy as np
 
 def initDir(vConfig):
-    InitList = [
-        'IMG_SAVE_PATH', 
-        'INFERENCE_SAVE_PATH', 
-        'OCR_SAVE_PATH',
-        'ADJUST_SAVE_PATH',
-        'INPUT_IMG_PATH',
-        'FIT_SAVE_PATH',
-        'MASK_SAVE_PATH'
-        ]
-    for key in InitList:
-        if not os.path.exists(vConfig[key]):
+    for key in vConfig:
+        lis = key.split('_')
+        if lis[-1] == "PATH" and not os.path.exists(vConfig[key]):
             os.makedirs(vConfig[key])
 
 # 等比例imshow
@@ -44,10 +35,12 @@ def saveOcr(vImgPath, vResult, vImgSavePath):
     ImShow = Image.fromarray(ImShow)
     ImShow.save(vImgSavePath)
 
-def getNameFromPath(vPath):
+def getNameFromPath(vPath, vWithSuffix=True):
     lis = vPath.split('/')
     Name = lis[-1]
-    return Name  
+    if not vWithSuffix:
+        Name = Name.split(".")[0]
+    return Name
 
 def calPointDistance(x1, y1, x2, y2):
     return sqrt((x1-x2)*(x1-x2)+(y1-y2)*(y1-y2))
@@ -96,7 +89,7 @@ def calOLS(vXLis, vYLis):
     Ret = np.dot(np.dot(np.linalg.inv(np.dot(X.T, X)), X.T), Y)
     return Ret
 
-def calPCA(vXLis, vYLis, k = 1):
+def calPCA(vXLis, vYLis, vK = 1):
     """
     vXLis: [x1, x2, ...]
     vYLis: [y1, y2, ...]
@@ -112,14 +105,13 @@ def calPCA(vXLis, vYLis, k = 1):
     EigVal, EigVec = np.linalg.eig(ScatterMat)
     EigPairs = [(np.abs(EigVal[i]), EigVec[:,i]) for i in range(NFeatures)]
     EigPairs.sort(reverse=True)
-    Features = np.array([i[1] for i in EigPairs[:k]])
+    Features = np.array([i[1] for i in EigPairs[:vK]])
     # data = np.dot(NormX,np.transpose(Feature))
     # 求最大
     tx, ty = Features[0]
     k = ty / tx
     b = mean[1] - k*mean[0]
     return np.array([k, b])
-
 
 
 if __name__ == '__main__':

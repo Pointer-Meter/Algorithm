@@ -1,29 +1,44 @@
 from distutils.command.config import config
-from cv2 import imread
 from mmdet.apis import init_detector, inference_detector
 from mmdet.core.mask.structures import bitmap_to_polygon
 import mmcv
-import os
-import cv2
 from math import atan, sqrt, pi, sin, cos, degrees, radians
-import yaml
+import yaml, json
 from myUtils import *
 
 class CClockRecognizer:
     def __init__(self, vConfig):
         self.m_Config = vConfig
         self.m_model = init_detector(
-            vConfig['MODEL_CONFIG_PATH'], 
-            vConfig['CHECKPOINT_PATH'], 
+            vConfig['MODEL_CONFIG'], 
+            vConfig['CHECKPOINT'], 
             device='cuda:0'
             )
-        self.m_AdjustScaleCorner = None
-        self.m_ScaleCircle = None
-        self.m_RotateImg = None
         self.m_AdjustScaleMask = None
         self.m_AdjustPointerMask = None
+
+        self.m_AdjustScaleCorner = None
+        self.m_ScaleCircle = None
         self.m_AdjustPointerBbox = None
         self.m_PointerPoint = None
+
+    def _saveParam(self, vSavePath):
+        with open(vSavePath, 'w', encoding='utf-8') as f:
+            ParamDict = {
+                "AdjustScaleCorner":self.m_AdjustScaleCorner,
+                "ScaleCircle":self.m_ScaleCircle,
+                "AdjustPointerBbox":self.m_AdjustPointerBbox,#
+                "PointerPoint":self.m_PointerPoint
+            }
+            json.dump(ParamDict, f, indent=1)
+
+    def loadParam(self, vSavePath):
+        with open(vSavePath, 'r', encoding='utf-8') as f:
+            ParamDict = json.load(f)
+            self.m_AdjustScaleCorner = ParamDict["AdjustScaleCorner"]
+            self.m_ScaleCircle = ParamDict["ScaleCircle"]
+            self.m_AdjustPointerBbox = ParamDict["AdjustPointerBbox"]
+            self.m_PointerPoint = ParamDict["PointerPoint"]
 
     def _detectCorner(self, vMask, vRawImg):
         CornerImg = vRawImg.copy()
@@ -35,7 +50,7 @@ class CClockRecognizer:
             blockSize = self.m_Config['BLOCK_SIZE'])
         for p in Corners:
             CornerImg = cv2.circle(CornerImg, 
-                (np.int32(p[0][0]), np.int32(p[0][1])), 
+                (int(p[0][0]), int(p[0][1])), 
                 10, self.m_Config['RGBCOLOR_RED'], 5)
         return Corners, CornerImg
 
@@ -103,12 +118,11 @@ class CClockRecognizer:
 
         # 透视变换
         t = np.dot(PerMatrix, vScaleCorner.T).T
-        ScaleCorner = np.array(
-            [[t[0][0]/t[0][2], t[0][1]/t[0][2]],
-             [t[1][0]/t[1][2], t[1][1]/t[1][2]]])
+        ScaleCorner = np.array([[t[0][0]/t[0][2], t[0][1]/t[0][2]],
+            [t[1][0]/t[1][2], t[1][1]/t[1][2]]]).tolist()
         return PerImg, ScaleMask, PointerMask, ScaleCorner
 
-    def _adjust(self, vImgPath): # vImgPath 是路径而不是单纯文件名
+    def _adjust(self, vImgPath):
         # 推理mask
         InferenceResult = inference_detector(self.m_model, vImgPath)
         self.m_model.show_result(vImgPath, InferenceResult,
@@ -146,8 +160,6 @@ class CClockRecognizer:
         # ConcatMask = RotateScaleMask + RotatePointerMask
         # ConcatMask[ConcatMask>0] = 255
         # cv2.imwrite(self.m_Config['MASK_SAVE_PATH']+'/'+ 'Rotate_' + getNameFromPath(vImgPath), ConcatMask)
-
-        self.m_RotateImg = RotateImg
         
         # 将角点也摆正一下
         onev, oneh = np.array([[0, 0, 1]]), np.array([[1], [1]])
@@ -196,7 +208,7 @@ class CClockRecognizer:
                 CircleLis2.append([x, y])
             # 标一下采样点
             ColoredImg = cv2.circle(
-                ColoredImg, (np.int32(x), np.int32(y)), 4, 
+                ColoredImg, (int(x), int(y)), 4, 
                 tuple(self.m_Config['RGBCOLOR_CYAN']), 2)
             
             ColoredImg = cv2.putText(ColoredImg, "("+str(x)+","+str(y)+")", 
@@ -219,9 +231,9 @@ class CClockRecognizer:
         Bbox = np.stack(Bbox, axis=0)
         PointerBbox, ScaleBbox = Bbox
         # BBOX: [[w, h], [w, h]]
-        self.m_AdjustPointerBbox = np.array(
-            [[PointerBbox[0], PointerBbox[1]],
-             [PointerBbox[2], PointerBbox[3]]])
+        # TypeError: Object of type float32 is not JSON serializable
+        self.m_AdjustPointerBbox = [[float(PointerBbox[0]), float(PointerBbox[1])],
+             [float(PointerBbox[2]), float(PointerBbox[3])]]
         # -- 最小二乘法拟合
         PointerXLis, PointerYLis = [], []
         for h in range(int(PointerBbox[1]), int(PointerBbox[3])):
@@ -229,6 +241,7 @@ class CClockRecognizer:
                 if self.m_AdjustPointerMask[h][w] > 0:
                     PointerXLis.append(w)
                     PointerYLis.append(h)
+                    # 可视化
                     ColoredImg[h][w] = 255
 
 
@@ -279,21 +292,17 @@ class CClockRecognizer:
         # --- 结果可视化
         # -- 标一下拟合好的圆
         ColoredImg = cv2.circle(ColoredImg, 
-            (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
-            np.int32(self.m_ScaleCircle[2]), self.m_Config['RGBCOLOR_BLUE'], 2)
+            (int(self.m_ScaleCircle[0]), int(self.m_ScaleCircle[1])),
+            int(self.m_ScaleCircle[2]), self.m_Config['RGBCOLOR_BLUE'], 2)
         # -- 标一下拟合好的圆心
         ColoredImg = cv2.circle(ColoredImg, 
-            (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
+            (int(self.m_ScaleCircle[0]), int(self.m_ScaleCircle[1])),
             5, self.m_Config['RGBCOLOR_BLUE'], 2)
-        # -- 标一下拟合好的直线
+        # -- 标一下拟合好的指针直线
         ColoredImg = cv2.line(ColoredImg, 
-            (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
+            (int(self.m_ScaleCircle[0]), int(self.m_ScaleCircle[1])),
             (int(self.m_PointerPoint[0]), int(self.m_PointerPoint[1])),
             self.m_Config['RGBCOLOR_ORANGE'], 2)
-        # ColoredImg = cv2.line(ColoredImg,
-        #     (100, int(100*k)),
-        #     (900, int(900*k)),
-        #     self.m_Config['RGBCOLOR_ORANGE'], 2) 
 
         # -- 标一下角点
         ColoredImg = cv2.circle(ColoredImg, (int(self.m_AdjustScaleCorner[0][0]), int(self.m_AdjustScaleCorner[0][1])),
@@ -313,10 +322,8 @@ class CClockRecognizer:
             (int(self.m_AdjustPointerBbox[0][0]), int(self.m_AdjustPointerBbox[0][1])), 
             (int(self.m_AdjustPointerBbox[1][0]), int(self.m_AdjustPointerBbox[1][1])),
             self.m_Config['RGBCOLOR_BLUE'], 5)
-        ColoredImg = cv2.line(ColoredImg, 
-            (500, 100),
-            (600, 100),
-            self.m_Config['RGBCOLOR_YELLOW'], 2) 
+        # -- 标一个测试直线 (w, h)
+        ColoredImg = cv2.line(ColoredImg, (500, 100), (600, 100), self.m_Config['RGBCOLOR_YELLOW'], 2) 
         cv2.imwrite(self.m_Config['FIT_SAVE_PATH']+'/'+getNameFromPath(ImgPath), ColoredImg)
             
 
@@ -328,6 +335,7 @@ class CClockRecognizer:
                 self._adjust(vDataPath+'/'+i)
                 print(">> fitting " + vDataPath+'/'+i + ' ...')
                 self._fitCircle(vDataPath+'/'+i)
+                self._saveParam(self.m_Config['PARAM_SAVE_PATH']+'/'+getNameFromPath(i,vWithSuffix=False)+".json")
                 
         elif os.path.isfile(vDataPath):
             print(">> adjusting " + vDataPath + ' ...')

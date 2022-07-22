@@ -1,22 +1,24 @@
-# paths
-INPUT_IMG_PATH: './cocome'
-IMG_SAVE_PATH: './img'
-INFERENCE_SAVE_PATH: './img/inference_result'
-MASK_SAVE_PATH: './img/mask_result'
-ADJUST_SAVE_PATH: './img/adjust_result'
-FIT_SAVE_PATH: './img/fit_result'
-OCR_SAVE_PATH: './ocr'
-MODEL_CONFIG_PATH: './configs/myConfigs/pointer_config.py'
-CHECKPOINT_PATH: './checkpoints/new.pth'
+# clock_recognizer----------------------------------------------------------------
 
-# corner point
+INPUT_IMG_PATH: './cocome'
+IMG_SAVE_PATH: './rec'
+INFERENCE_SAVE_PATH: './rec/inference_result'
+MASK_SAVE_PATH: './rec/mask_result'
+ADJUST_SAVE_PATH: './rec/adjust_result'
+FIT_SAVE_PATH: './rec/fit_result'
+PARAM_SAVE_PATH: './rec/param'
+
+MODEL_CONFIG: './configs/myConfigs/pointer_config.py'
+CHECKPOINT: './checkpoints/new.pth'
+
+# corner point (cv2.goodFeaturesToTrack)
 QUALITY_LEVEL: 0.01
 BLOCK_SIZE: 100
 MAX_CORNERS: 2
 MIN_DISTANCE: 300
 
 # perspective rectangle w,h
-# o--------------> w
+# o-----------> w
 # |
 # |
 # |
@@ -45,10 +47,6 @@ REC:
 SAMPLE_DIST_TO_CORNER: 100
 SAMPLE_INDEX: 47
 
-# ocr preprocess
-MORPHOLOGY_KERNEL_SIZE: 2
-MORPHOLOGY_KERNEL_ITERATION: 3
-
 # color
 RGBCOLOR_CYAN: 
   - 255
@@ -74,6 +72,28 @@ RGBCOLOR_ORANGE:
   - 0
   - 165
   - 255
+
+# ocr_recognizer ---------------------------------------------------------
+
+OCR_IMG_SAVE_PATH: './ocr/visualize'
+OCR_FILE_SAVE_PATH: './ocr/result'
+
+# ocr _preProcess
+MORPHOLOGY_KERNEL_SIZE: 2
+MORPHOLOGY_KERNEL_ITERATION: 3
+
+# ocr _postProcess
+ACC_THRESH: 0.8
+
+
+
+
+
+
+
+
+
+
 
 # debug
 SHOW_IMG: false

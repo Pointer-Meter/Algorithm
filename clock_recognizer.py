@@ -4,10 +4,8 @@ from mmdet.apis import init_detector, inference_detector
 from mmdet.core.mask.structures import bitmap_to_polygon
 import mmcv
 import os
-import numpy as np
 import cv2
 from math import atan, sqrt, pi, sin, cos, degrees, radians
-import json
 import yaml
 from myUtils import *
 
@@ -233,16 +231,10 @@ class CClockRecognizer:
                     PointerYLis.append(h)
                     ColoredImg[h][w] = 255
 
-        ones = np.ones(len(PointerXLis)).reshape(-1, 1)
-        PointerX = np.array(PointerXLis).reshape(-1, 1)
-        PointerX = np.concatenate((PointerX, ones), axis=1)
-        PointerY = np.array(PointerYLis)
-        # X^T * X * B = X^T * Y
-        # B = (X^T * X)^-1 * (X^T * Y)
-        PointerFitParam = np.dot(
-            np.dot(np.linalg.inv(np.dot(PointerX.T, PointerX)), PointerX.T), PointerY)
+
+        PointerFitParam = calPCA(PointerXLis, PointerYLis)
         PointerMaskIndexMat = np.vstack((np.array([PointerXLis]), np.array([PointerYLis]))).T
-        print("pointer line: ", PointerFitParam)
+
         # -- 计算指针的方向
         NormalK = -1 / PointerFitParam[0]
         NormalB = self.m_ScaleCircle[1] - NormalK * self.m_ScaleCircle[0]
@@ -278,9 +270,9 @@ class CClockRecognizer:
 
         print((w1-self.m_ScaleCircle[0])*(w1-self.m_ScaleCircle[0])+(h1-self.m_ScaleCircle[1])*(h1-self.m_ScaleCircle[1])-self.m_ScaleCircle[2]*self.m_ScaleCircle[2])
         if (NormalK*w1+NormalB-h1)*(AvgSum[0]-AvgSum[1])>0 and (NormalK*w2+NormalB-h2)*(AvgSum[0]-AvgSum[1])<0:
-            self.m_PointerPoint = [w1, h1]
-        elif (NormalK*w1+NormalB-h1)*(AvgSum[0]-AvgSum[1])<0 and (NormalK*w2+NormalB-h2)*(AvgSum[0]-AvgSum[1])>0:
             self.m_PointerPoint = [w2, h2]
+        elif (NormalK*w1+NormalB-h1)*(AvgSum[0]-AvgSum[1])<0 and (NormalK*w2+NormalB-h2)*(AvgSum[0]-AvgSum[1])>0:
+            self.m_PointerPoint = [w1, h1]
         else:
             print(">> ERROR! Please Check Your Cal.")
 
@@ -297,7 +289,11 @@ class CClockRecognizer:
         ColoredImg = cv2.line(ColoredImg, 
             (np.int32(self.m_ScaleCircle[0]), np.int32(self.m_ScaleCircle[1])),
             (int(self.m_PointerPoint[0]), int(self.m_PointerPoint[1])),
-            self.m_Config['RGBCOLOR_BLUE'], 2)  
+            self.m_Config['RGBCOLOR_ORANGE'], 2)
+        # ColoredImg = cv2.line(ColoredImg,
+        #     (100, int(100*k)),
+        #     (900, int(900*k)),
+        #     self.m_Config['RGBCOLOR_ORANGE'], 2) 
 
         # -- 标一下角点
         ColoredImg = cv2.circle(ColoredImg, (int(self.m_AdjustScaleCorner[0][0]), int(self.m_AdjustScaleCorner[0][1])),

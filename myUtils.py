@@ -4,6 +4,7 @@ import cv2
 from PIL import Image
 from paddleocr import PaddleOCR, draw_ocr
 from math import sqrt
+import numpy as np
 
 def initDir(vConfig):
     InitList = [
@@ -79,6 +80,47 @@ def calCircleCenter(vPointsList):  # 最小二乘法计算拟合圆
     R = sqrt(a * a + b * b - 4 * c) / 2
 
     return A, B, R
+
+def calOLS(vXLis, vYLis):
+    """
+    vXLis: [x1, x2, ...]
+    vYLis: [y1, y2, ...]
+    Ret: [k, b]
+    """
+    ones = np.ones(len(vXLis)).reshape(-1, 1)
+    X = np.array(vXLis).reshape(-1, 1)
+    X = np.concatenate((X, ones), axis=1)
+    Y = np.array(vYLis)
+    # X^T * X * B = X^T * Y
+    # B = (X^T * X)^-1 * (X^T * Y)
+    Ret = np.dot(np.dot(np.linalg.inv(np.dot(X.T, X)), X.T), Y)
+    return Ret
+
+def calPCA(vXLis, vYLis, k = 1):
+    """
+    vXLis: [x1, x2, ...]
+    vYLis: [y1, y2, ...]
+    X: [[x1,y1], [x2, y2], ...]
+    """
+    X = np.array([np.array([vXLis[i], vYLis[i]]) for i in range(len(vXLis))])
+
+    NSamples, NFeatures = X.shape
+    mean = np.array([np.mean(X[:, i]) for i in range(NFeatures)])
+    NormX = X-mean
+    ScatterMat = np.dot(np.transpose(NormX), NormX)
+
+    EigVal, EigVec = np.linalg.eig(ScatterMat)
+    EigPairs = [(np.abs(EigVal[i]), EigVec[:,i]) for i in range(NFeatures)]
+    EigPairs.sort(reverse=True)
+    Features = np.array([i[1] for i in EigPairs[:k]])
+    # data = np.dot(NormX,np.transpose(Feature))
+    # 求最大
+    tx, ty = Features[0]
+    k = ty / tx
+    b = mean[1] - k*mean[0]
+    return np.array([k, b])
+
+
 
 if __name__ == '__main__':
     a = './configs/myConfigs/pointer_config.py'

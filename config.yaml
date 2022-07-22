@@ -69,5 +69,11 @@ RGBCOLOR_RED:
   - 0
   - 0
   - 255
+
+RGBCOLOR_ORANGE:
+  - 0
+  - 165
+  - 255
+
 # debug
 SHOW_IMG: false

@@ -59,9 +59,5 @@ ocr的检测，识别，方向分类模型的下载链接都在本地目录 `/yo
     - [x] 透视变换的公式写错
     - [ ] 指针方向有问题
 
-<!-- 
-+ 如果matplotlib冲突，降级labelme `python3 -m pip install labelme==4.2.0`
-
-+ 如果缺wrapt `python3 -m pip install wrapt`
-
-+ `Click`包可能有冲突但不影响 -->
++ 7.22
+    - [x] 将指针拟合方法从OLS换成了PCA

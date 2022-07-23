@@ -4,6 +4,8 @@ from PIL import Image
 from paddleocr import PaddleOCR, draw_ocr
 from math import sqrt
 import numpy as np
+import math
+import random
 
 def initDir(vConfig):
     for key in vConfig:
@@ -113,6 +115,57 @@ def calPCA(vXLis, vYLis, vK = 1):
     b = mean[1] - k*mean[0]
     return np.array([k, b])
 
+def calAbsDegree(vCircleCenter, vCenterPt):
+    """计算ocr数字中心的绝对角度
+    我们定义0度和h方向同向
+
+    o---------------------->
+    |               -90                      180(-180)
+    |                ^                           |
+    |                |                           |
+    |                |                           |
+    |                |                           | 
+    |180(-180) ------o------- 0    ==>  90 ------o------ -90
+    |                |                           |
+    |                |                           |
+    |                |                           |
+    |                V                           V
+    V               90                           0
+    """
+    CenterVec = [vCenterPt[0] - vCircleCenter[0], vCenterPt[1]-vCircleCenter[1]]
+    
+    Degree = math.degrees(math.atan2(CenterVec[1], CenterVec[0]))
+    return (Degree + 270)%360
+
+def calRANSAC(vXLis, vYLis, vConfig):
+    Size = len(vXLis)
+    PreInlier = 0
+    Epoch = vConfig['RANSAC_EPOCH']
+    P = vConfig['RANSAC_P']
+    BestK, BestB = 0, 0
+    for _ in range(Epoch):
+        SampleIdx = random.sample(range(Size),2)
+        x1, x2 = vXLis[SampleIdx[0]], vXLis[SampleIdx[1]]
+        y1, y2 = vYLis[SampleIdx[0]], vYLis[SampleIdx[1]]
+        k = (y2-y1)/(x2-x1)
+        b = y1-k*x1
+
+        # 计算内点数量
+        NumInlier = 0
+        for i in range(Size):
+            EstimateY = k * vXLis[i] + b
+            if abs(EstimateY - vYLis[i]) < vConfig['RANSAC_SIGMA']:
+                NumInlier += 1
+        
+        # 判断当前模型是否比之前估算的模型好
+        if NumInlier > PreInlier:
+            PreInlier = NumInlier
+            BestK, BestB = k, b
+
+        if NumInlier*2 > Size:
+            break
+    return BestK, BestB
+    
 
 if __name__ == '__main__':
     a = './configs/myConfigs/pointer_config.py'

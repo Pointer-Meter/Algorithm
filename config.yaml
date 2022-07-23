@@ -15,7 +15,7 @@ CHECKPOINT: './checkpoints/new.pth'
 QUALITY_LEVEL: 0.01
 BLOCK_SIZE: 100
 MAX_CORNERS: 2
-MIN_DISTANCE: 300
+MIN_DISTANCE: 289
 
 # perspective rectangle w,h
 # o-----------> w
@@ -83,9 +83,16 @@ MORPHOLOGY_KERNEL_SIZE: 2
 MORPHOLOGY_KERNEL_ITERATION: 3
 
 # ocr _postProcess
-ACC_THRESH: 0.8
+ACC_THRESH: 0.6
 
+# result_calculator ------------------------------------------------------
+MIN_DEGREE: 25
+MAX_DEGREE: 335
+MIN_R_FACTOR: 0.5
 
+RANSAC_EPOCH: 1000
+RANSAC_SIGMA: 0.01
+RANSAC_P: 0.95
 
 
 

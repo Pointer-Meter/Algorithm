@@ -40,14 +40,16 @@ class CClockRecognizer:
             self.m_AdjustPointerBbox = ParamDict["AdjustPointerBbox"]
             self.m_PointerPoint = ParamDict["PointerPoint"]
 
-    def _detectCorner(self, vMask, vRawImg):
+    def _detectCorner(self, vMask, vRawImg, vMinDist, vImgSize):
         CornerImg = vRawImg.copy()
-        Corners = cv2.goodFeaturesToTrack(
-            vMask, 
+        BlockSize=vImgSize*self.m_Config['BLOCK_SIZE_FACTOR']
+        Corners = cv2.goodFeaturesToTrack(vMask, 
             self.m_Config['MAX_CORNERS'], 
             self.m_Config['QUALITY_LEVEL'], 
-            self.m_Config['MIN_DISTANCE'], 
-            blockSize = self.m_Config['BLOCK_SIZE'])
+            self.m_Config['MIN_DISTANCE_FACTOR']*vMinDist,
+            mask=None,
+            blockSize=int(BlockSize)
+            )
         for p in Corners:
             CornerImg = cv2.circle(CornerImg, 
                 (int(p[0][0]), int(p[0][1])), 
@@ -128,28 +130,21 @@ class CClockRecognizer:
         self.m_model.show_result(vImgPath, InferenceResult,
             out_file=config['INFERENCE_SAVE_PATH']+'/'+ getNameFromPath(vImgPath))
         
-        BboxResult, SegmResult = InferenceResult
-        Bbox = mmcv.concat_list(BboxResult)
-        Bbox = np.stack(Bbox, axis=0)
+        # -- 分开推理结果
+        Bbox, Segm = getInferenceResult(InferenceResult)
         PointerBbox, ScaleBbox = Bbox
-        # PointerBbox = np.array(
-        #     [[PointerBbox[0], PointerBbox[1]],
-        #      [PointerBbox[2], PointerBbox[3]]])
+        PointerMask, ScaleMask = Segm
 
-        Segm = mmcv.concat_list(SegmResult)
-        Segm = np.stack(Segm, axis=0)
-
-        PointerMask, ScaleMask = Segm[0], Segm[1]
         PointerMask = PointerMask.astype(np.uint8)
         ScaleMask = ScaleMask.astype(np.uint8)
 
-        ReferencePoint = [(BboxResult[0][0][0]+BboxResult[0][0][2])/2, 
-            (BboxResult[0][0][1]+BboxResult[0][0][3])/2]
+        ReferencePoint = [(Bbox[0][0]+Bbox[0][2])/2, 
+            (Bbox[0][1]+Bbox[0][3])/2]
         
         # 获取未旋转图片的mask，并在角点检测后进行摆正
         # 摆正原图、刻度mask、指针mask
         RawImg = cv2.imread(vImgPath)
-        CornerLis, CornerImg = self._detectCorner(ScaleMask, RawImg) 
+        CornerLis, CornerImg = self._detectCorner(ScaleMask, RawImg, ScaleBbox[2]-ScaleBbox[0], max(RawImg.shape))
         ScaleCorner = [[CornerLis[0][0][0], CornerLis[0][0][1]],
             [CornerLis[1][0][0], CornerLis[1][0][1]]]
         RotateImg, RotateMatrix, NewW, NewH = self._rotate(CornerImg, ScaleCorner, ReferencePoint)
@@ -187,6 +182,7 @@ class CClockRecognizer:
         CircleLis1, CircleLis2 = [], []
         i, cnt = 0, 0
         Lock = False
+
         while True:
             # Contour: [array[[x,y],[x,y],[x,y]...]]
             [x, y] = Contour[0][i]
@@ -226,9 +222,7 @@ class CClockRecognizer:
         # -- 对指针BBOX旋转是错误的，所以只能重新推理
         InferenceResult = inference_detector(self.m_model, ImgPath)
         
-        BboxResult, _ = InferenceResult
-        Bbox = mmcv.concat_list(BboxResult)
-        Bbox = np.stack(Bbox, axis=0)
+        Bbox, _ = getInferenceResult(InferenceResult)
         PointerBbox, ScaleBbox = Bbox
         # BBOX: [[w, h], [w, h]]
         # TypeError: Object of type float32 is not JSON serializable
@@ -252,18 +246,21 @@ class CClockRecognizer:
         NormalK = -1 / PointerFitParam[0]
         NormalB = self.m_ScaleCircle[1] - NormalK * self.m_ScaleCircle[0]
         AvgSum = [0, 0]
-        cnt = 1
+        cnt1, cnt2 = 1, 1
         for pt in PointerMaskIndexMat:
             w, h = pt
-            DistToCenter = calPointDistance(x, y, 
+            DistToCenter = calPointDistance(w, h, 
                 self.m_ScaleCircle[0], self.m_ScaleCircle[1])
             if NormalK*w+NormalB-h>0:
-                AvgSum[0] = AvgSum[0] / cnt * (cnt-1) + DistToCenter / cnt
+                AvgSum[0] = max(AvgSum[0], DistToCenter)
+                # AvgSum[0] = AvgSum[0] / cnt1 * (cnt1-1) + DistToCenter / cnt1
+                # cnt1 += 1
             elif NormalK*w+NormalB-h<0:
-                AvgSum[1] = AvgSum[1] / cnt * (cnt-1) + DistToCenter / cnt
+                AvgSum[1] = max(AvgSum[1], DistToCenter)
+                # AvgSum[1] = AvgSum[1] / cnt2 * (cnt2-1) + DistToCenter / cnt2
+                # cnt2 += 1
             else:
                 continue
-            cnt += 1
         # -- 求指针与圆的焦点
         # ax^2 + bx + c = 0
         a = PointerFitParam[0]*PointerFitParam[0]+1
@@ -281,13 +278,17 @@ class CClockRecognizer:
         w2 = (-b+sqrt(b*b-4*a*c))/(2*a)
         h2 = PointerFitParam[0]*w2+PointerFitParam[1]
 
-        print((w1-self.m_ScaleCircle[0])*(w1-self.m_ScaleCircle[0])+(h1-self.m_ScaleCircle[1])*(h1-self.m_ScaleCircle[1])-self.m_ScaleCircle[2]*self.m_ScaleCircle[2])
+        assert ((w1-self.m_ScaleCircle[0])*(w1-self.m_ScaleCircle[0])+
+            (h1-self.m_ScaleCircle[1])*(h1-self.m_ScaleCircle[1])-
+            self.m_ScaleCircle[2]*self.m_ScaleCircle[2]) < 1e-3, "The point is not on the circle!"
+
         if (NormalK*w1+NormalB-h1)*(AvgSum[0]-AvgSum[1])>0 and (NormalK*w2+NormalB-h2)*(AvgSum[0]-AvgSum[1])<0:
-            self.m_PointerPoint = [w2, h2]
-        elif (NormalK*w1+NormalB-h1)*(AvgSum[0]-AvgSum[1])<0 and (NormalK*w2+NormalB-h2)*(AvgSum[0]-AvgSum[1])>0:
             self.m_PointerPoint = [w1, h1]
+        elif (NormalK*w1+NormalB-h1)*(AvgSum[0]-AvgSum[1])<0 and (NormalK*w2+NormalB-h2)*(AvgSum[0]-AvgSum[1])>0:
+            self.m_PointerPoint = [w2, h2]
         else:
-            print(">> ERROR! Please Check Your Cal.")
+            raise Exception("ERROR! Please Check Your Cal.")
+        
 
         # --- 结果可视化
         # -- 标一下拟合好的圆
@@ -331,17 +332,25 @@ class CClockRecognizer:
         if os.path.isdir(vDataPath):
             NameLis = os.listdir(vDataPath)
             for i in NameLis:
-                print(">> adjusting " + vDataPath+'/'+i + ' ...')
-                self._adjust(vDataPath+'/'+i)
-                print(">> fitting " + vDataPath+'/'+i + ' ...')
-                self._fitCircle(vDataPath+'/'+i)
-                self._saveParam(self.m_Config['PARAM_SAVE_PATH']+'/'+getNameFromPath(i,vWithSuffix=False)+".json")
-                
+                try:
+                    print('--------------------------------------------')
+                    print(">> adjusting " + vDataPath+'/'+i + ' ...')
+                    self._adjust(vDataPath+'/'+i)
+                    print(">> fitting " + vDataPath+'/'+i + ' ...')
+                    self._fitCircle(vDataPath+'/'+i)
+                    self._saveParam(self.m_Config['PARAM_SAVE_PATH']+'/'+getNameFromPath(i,vWithSuffix=False)+".json")
+                except Exception as ErrMsg:
+                    print(ErrMsg)
+
         elif os.path.isfile(vDataPath):
-            print(">> adjusting " + vDataPath + ' ...')
-            self._adjust(vDataPath)
-            print(">> fitting " + vDataPath + ' ...')
-            self._fitCircle(vDataPath)
+            try:
+                print('--------------------------------------------')
+                print(">> adjusting " + vDataPath + ' ...')
+                self._adjust(vDataPath)
+                print(">> fitting " + vDataPath + ' ...')
+                self._fitCircle(vDataPath)
+            except Exception as ErrMsg:
+                print(ErrMsg)
         else:
             print("[ERROR] Check your vDataPath!")
 

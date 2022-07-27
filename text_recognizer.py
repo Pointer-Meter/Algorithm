@@ -69,14 +69,20 @@ class CTextRecognizer:
         if os.path.isdir(vDataPath):
             NameLis = os.listdir(vDataPath)
             for i in NameLis:
-                print(">> ocr..." + vDataPath+'/'+i + ' ...')
-                Ret = self._preProcess(vDataPath+'/'+i)
-                self._postProcess(Ret, self.m_Config['OCR_FILE_SAVE_PATH']+'/'+getNameFromPath(i,False)+".json")
-                
+                try:
+                    print(">> ocr..." + vDataPath+'/'+i + ' ...')
+                    Ret = self._preProcess(vDataPath+'/'+i)
+                    self._postProcess(Ret, self.m_Config['OCR_FILE_SAVE_PATH']+'/'+getNameFromPath(i,False)+".json")
+                except Exception as ErrMsg:
+                    print(ErrMsg)    
+            
         elif os.path.isfile(vDataPath):
-            print(">> ocr..." + vDataPath + ' ...')
-            Ret = self._preProcess(vDataPath)
-            self._postProcess(Ret, self.m_Config['OCR_FILE_SAVE_PATH']+'/'+getNameFromPath(vDataPath))
+            try:
+                print(">> ocr..." + vDataPath + ' ...')
+                Ret = self._preProcess(vDataPath)
+                self._postProcess(Ret, self.m_Config['OCR_FILE_SAVE_PATH']+'/'+getNameFromPath(vDataPath))
+            except Exception as ErrMsg:
+                print(ErrMsg)
         
         else:
             print("[ERROR] Check your vDataPath!")

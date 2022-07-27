@@ -6,6 +6,7 @@ from math import sqrt
 import numpy as np
 import math
 import random
+import mmcv
 
 def initDir(vConfig):
     for key in vConfig:
@@ -139,6 +140,7 @@ def calAbsDegree(vCircleCenter, vCenterPt):
 
 def calRANSAC(vXLis, vYLis, vConfig):
     Size = len(vXLis)
+    assert Size >= 2, "[ERROR] Dot < 2."
     PreInlier = 0
     Epoch = vConfig['RANSAC_EPOCH']
     P = vConfig['RANSAC_P']
@@ -165,7 +167,39 @@ def calRANSAC(vXLis, vYLis, vConfig):
         if NumInlier*2 > Size:
             break
     return BestK, BestB
-    
+
+def getInferenceResult(vInferenceResult):
+    BboxResult, SegmResult = vInferenceResult
+
+    bbx = mmcv.concat_list(BboxResult)
+    bbx = np.stack(bbx, axis=0)
+    sgm = mmcv.concat_list(SegmResult)
+    sgm = np.stack(sgm, axis=0)
+    Bbox, Segm = [], []
+    SortLis = []
+    cnt = bbx.shape[0]
+    if cnt < 2:
+        raise Exception('[ERROR] BBOX < 2')
+    for i in range(bbx.shape[0]):
+        if bbx[i][4] < 0.5 and cnt > 2:
+            cnt -= 1
+            continue
+        Bbox.append(bbx[i])
+        Segm.append(sgm[i])
+        # SortLis.append((bbx[i][4], i))
+    # print("Not sort: ", SortLis)
+    # SortLis = sorted(SortLis, reverse=True)
+    # print("Sort: ", SortLis)
+
+    # for i in range(2):
+    #     index = i
+
+    #     Bbox.append(bbx[index])
+    #     Segm.append(sgm[index])
+
+    Bbox = np.array(Bbox)
+    Segm = np.array(Segm)
+    return Bbox, Segm
 
 if __name__ == '__main__':
     a = './configs/myConfigs/pointer_config.py'

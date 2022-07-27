@@ -33,14 +33,14 @@ class CResultCalculator:
             # -- 启动RANSAC算法
             XLis.append(Degree)
             YLis.append(Fkey)
-        print(XLis)
-        print(YLis)
+        # print(XLis)
+        # print(YLis)
         k, b = calRANSAC(XLis, YLis, self.m_Config)
-        print("k: ", k, " b: ", b)
+        # print("k: ", k, " b: ", b)
         # -- 获取指针的degree
         PointerDegree = calAbsDegree(ScaleCenterPt,
             self.m_ClockRecognizer.m_PointerPoint)
-        print("PointerDegree: ", PointerDegree)
+        # print("PointerDegree: ", PointerDegree)
         Ret = k * PointerDegree + b
         print("Result: ", Ret)
         return FineDic
@@ -57,17 +57,23 @@ class CResultCalculator:
         if os.path.isdir(vDataPath):
             NameLis = os.listdir(vDataPath)
             for i in NameLis:
-                print(">> calculating..." + vDataPath+'/'+i + ' ...')
-                self.m_ClockRecognizer = CClockRecognizer(self.m_Config)
-                self.m_ClockRecognizer.loadParam(vDataPath+'/'+i)
-                self.calculate(self.m_Config['OCR_FILE_SAVE_PATH']+'/'+i)
+                try:
+                    print(">> calculating..." + vDataPath+'/'+i + ' ...')
+                    self.m_ClockRecognizer = CClockRecognizer(self.m_Config)
+                    self.m_ClockRecognizer.loadParam(vDataPath+'/'+i)
+                    self.calculate(self.m_Config['OCR_FILE_SAVE_PATH']+'/'+i)
+                except Exception as ErrMsg:
+                    print(ErrMsg) 
 
                 
         elif os.path.isfile(vDataPath):
-            print(">> calculating..." + vDataPath + ' ...')
-            self.m_ClockRecognizer = CClockRecognizer(self.m_Config)
-            self.m_ClockRecognizer.loadParam(vDataPath)
-            self.calculate(self.m_Config['OCR_FILE_SAVE_PATH']+'/'+getNameFromPath(vDataPath))
+            try:
+                print(">> calculating..." + vDataPath + ' ...')
+                self.m_ClockRecognizer = CClockRecognizer(self.m_Config)
+                self.m_ClockRecognizer.loadParam(vDataPath)
+                self.calculate(self.m_Config['OCR_FILE_SAVE_PATH']+'/'+getNameFromPath(vDataPath))
+            except Exception as ErrMsg:
+                print(ErrMsg) 
         
         else:
             print("[ERROR] Check your vDataPath!")

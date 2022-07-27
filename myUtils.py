@@ -21,13 +21,23 @@ def showImg(vImg, vWindowName = "Img", vIfMask = False):
     # print(vImg.shape, Factor)
     # resize WH
     if Factor >= 1:
-        Img = cv2.resize(vImg, (int(900/Factor), 900))
+        Img = cv2.resize(vImg, (int(800/Factor), 800))
     else:
-        Img = cv2.resize(vImg, (900, int(900*Factor)))
+        Img = cv2.resize(vImg, (800, int(800*Factor)))
     if vIfMask:
         Img[Img > 0] = 255
     cv2.imshow(vWindowName, Img)
     cv2.waitKey(0)
+
+def readImg(vImgPath):
+    SuffixLis = ['.png', '.jpg']
+    ImgPath = None
+    for sf in SuffixLis:
+        ImgPath = vImgPath + sf
+        if os.path.exists(ImgPath):
+            return cv2.imread(ImgPath)
+    raise Exception("[ERROR] can't read IMG.")
+
 
 def saveOcr(vImgPath, vResult, vImgSavePath):
     Img = Image.open(vImgPath).convert('RGB')

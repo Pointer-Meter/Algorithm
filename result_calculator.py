@@ -43,7 +43,7 @@ class CResultCalculator:
         # print("PointerDegree: ", PointerDegree)
         Ret = k * PointerDegree + b
         print("Result: ", Ret)
-        return FineDic
+        return FineDic, Ret
 
 
     def calculate(self, vSavePath):
@@ -51,7 +51,18 @@ class CResultCalculator:
         """
         with open(vSavePath, 'r', encoding='utf-8') as f:
             dic = json.load(f)
-            Dic = self._preprocess(dic)
+            FineDic, Ret = self._preprocess(dic)
+            Img = readImg(self.m_Config['ADJUST_SAVE_PATH']+'/'+getNameFromPath(vSavePath, False))
+            PadImg = cv2.copyMakeBorder(Img, 0, self.m_Config['BOTTOM_PADDING'], 0, 0, 
+                cv2.BORDER_CONSTANT, value=(255,255,255))
+            
+            PadImg = cv2.putText(PadImg, 
+                "Result: " + str(Ret), 
+                (0, int(self.m_Config['REC']['SIZE'][0]+self.m_Config['BOTTOM_PADDING']/2)), 
+                cv2.FONT_HERSHEY_COMPLEX, 1, 
+                self.m_Config['RGBCOLOR_BLACK'], 1)
+            cv2.imwrite(self.m_Config['DEBUG_SAVE_PATH']+'/'+getNameFromPath(vSavePath, False)+'.jpg', PadImg)
+            
 
     def process(self, vDataPath):
         if os.path.isdir(vDataPath):

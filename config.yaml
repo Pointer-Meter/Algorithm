@@ -73,6 +73,10 @@ RGBCOLOR_ORANGE:
   - 0
   - 165
   - 255
+RGBCOLOR_BLACK:
+  - 0
+  - 0
+  - 0
 
 # ocr_recognizer ---------------------------------------------------------
 
@@ -95,6 +99,7 @@ RANSAC_EPOCH: 1000
 RANSAC_SIGMA: 0.01
 RANSAC_P: 0.95
 
+BOTTOM_PADDING: 50
 
 
 
